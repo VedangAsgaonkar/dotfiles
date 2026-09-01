@@ -15,7 +15,7 @@
 #
 # On a node that has never been touched, bootstrap it straight from GitHub:
 #
-#   curl -fsSL https://raw.githubusercontent.com/rishabh-ranjan/dotfiles/main/setup-node.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/VedangAsgaonkar/dotfiles/main/setup-node.sh | bash
 #
 # Only system git and curl are needed to get started. Durable state that is NOT
 # node-local (API tokens) lives under ~/scratch and is not touched here.
@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-DOTFILES_URL=https://github.com/rishabh-ranjan/dotfiles
+DOTFILES_URL=https://github.com/VedangAsgaonkar/dotfiles
 # NODE_HOME is overridable only so the cold-start path can be exercised
 # somewhere harmless; nothing in normal use sets it.
 if [[ -d /marlowe ]]; then
