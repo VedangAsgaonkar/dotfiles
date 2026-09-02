@@ -20,7 +20,7 @@ fi
 # far and needs the same tools a login does (pixi, ~/.local/bin, and on Marlowe
 # slurm, which the system PATH lacks). fish inherits all of it.
 export PIXI_HOME="$HOME/.pixi"
-export PATH="$HOME/.local/bin:$PIXI_HOME/bin:$PATH"
+export PATH="$PIXI_HOME/envs/nodejs/bin/:$HOME/.local/bin:$PIXI_HOME/bin:$PATH"
 
 [[ $- != *i* ]] && return
 
