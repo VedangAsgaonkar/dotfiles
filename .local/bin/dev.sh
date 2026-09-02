@@ -20,9 +20,9 @@ done
 
 # Attach via ssh, not srun: each srun attach creates a Slurm job step,
 # and the job dies at MaxStepCount (40000). ssh creates no steps.
-node=$(squeue -h -j "$jid" -o %N)
+# node=$(squeue -h -j "$jid" -o %N)
 # Use the pixi tmux (3.7) everywhere: the wrap starts it (PATH has ~/.pixi/bin),
 # and /usr/bin/tmux (3.4) cannot talk to that server ("server exited unexpectedly").
-tmux=/lfs/local/0/vedanga/.pixi/bin/tmux
-ssh "$node" $tmux has-session -t dev 2>/dev/null || ssh "$node" "HOME=/lfs/local/0/vedanga PATH=/lfs/local/0/vedanga/.pixi/bin:\$PATH SHELL=/lfs/local/0/vedanga/.pixi/bin/fish $tmux new-session -d -s dev -c /lfs/local/0/vedanga"
-exec ssh -t "$node" $tmux attach -t dev
+# tmux=/lfs/local/0/vedanga/.pixi/bin/tmux
+# ssh "$node" $tmux has-session -t dev 2>/dev/null || ssh "$node" "HOME=/lfs/local/0/vedanga PATH=/lfs/local/0/vedanga/.pixi/bin:\$PATH SHELL=/lfs/local/0/vedanga/.pixi/bin/fish $tmux new-session -d -s dev -c /lfs/local/0/vedanga"
+# exec ssh -t "$node" $tmux attach -t dev
