@@ -16,6 +16,8 @@ set -x PYTHONPATH "$HOME/.config/python"
 set -x WANDB_DIR "$HOME/.cache/"
 set -x WANDB_CONSOLE "off"
 
+fzf --fish | source
+
 # ~/scratch is the cluster's shared store (setup-node.sh); absent on the mac,
 # hence the guard. Tokens are the one thing that must not be node-local.
 # Interactive shells export them; batch jobs read the files themselves rather
