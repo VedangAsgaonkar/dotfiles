@@ -6,7 +6,7 @@ set -uo pipefail
 if ! squeue -h -u "$USER" -n dev-node -t PENDING,RUNNING -o %i | grep -q .; then
   echo "starting dev-node ..."
   sbatch --account=infolab --partition=il-cpu --qos=il-cpu-long \
-    --job-name=dev-node --nodelist=hyperturing1 \
+    --job-name=dev-node --nodelist=furiosa \
     --nodes=1 --cpus-per-task=8 --mem=60G \
     --time=31-00:00:00 --output=/lfs/local/0/vedanga/dev-node.log \
     --wrap='export HOME=/lfs/local/0/vedanga; cd; export PATH=$HOME/.pixi/bin:$PATH; export SHELL=/lfs/local/0/vedanga/.pixi/bin/fish; tmux new-session -d -s dev || exit 1; exec sleep infinity' >/dev/null

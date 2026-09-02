@@ -75,6 +75,11 @@ channels = ["conda-forge"]
 dependencies = { ripgrep = "*" }
 exposed = { rg = "rg" }
 
+[envs.fzf]
+channels = ["conda-forge"]
+dependencies = { fzf = "*" }
+exposed = { fzf = "fzf" }
+
 [envs.grip]
 channels = ["conda-forge"]
 dependencies = { grip = "*" }
