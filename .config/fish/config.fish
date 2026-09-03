@@ -22,19 +22,31 @@ fzf --fish | source
 # hence the guard. Tokens are the one thing that must not be node-local.
 # Interactive shells export them; batch jobs read the files themselves rather
 # than inheriting the submitting env.
+
 set -l secrets $HOME/scratch/.secrets
-if test -d $secrets
-	set -x GH_TOKEN (cat $secrets/github)
-	set -x GITHUB_TOKEN $GH_TOKEN
-	set -x HF_TOKEN (cat $secrets/huggingface)
-	set -x HUGGING_FACE_HUB_TOKEN $HF_TOKEN
-	set -x WANDB_API_KEY (cat $secrets/wandb)
-	set -x PYPI_API_TOKEN (cat $secrets/pypi)
-	set -x UV_PUBLISH_TOKEN $PYPI_API_TOKEN
-	set -x TWINE_USERNAME __token__
-	set -x TWINE_PASSWORD $PYPI_API_TOKEN
-	set -x OFFICE365_TOKEN_CACHE $secrets/office365
+
+if test -f $secrets/github
+    set -x GH_TOKEN (cat $secrets/github)
+    set -x GITHUB_TOKEN $GH_TOKEN
 end
+
+if test -f $secrets/huggingface
+    set -x HF_TOKEN (cat $secrets/huggingface)
+    set -x HUGGING_FACE_HUB_TOKEN $HF_TOKEN
+end
+
+if test -f $secrets/wandb
+    set -x WANDB_API_KEY (cat $secrets/wandb)
+end
+
+if test -f $secrets/pypi
+    set -x PYPI_API_TOKEN (cat $secrets/pypi)
+    set -x UV_PUBLISH_TOKEN $PYPI_API_TOKEN
+    set -x TWINE_USERNAME __token__
+    set -x TWINE_PASSWORD $PYPI_API_TOKEN
+end
+
+set -x OFFICE365_TOKEN_CACHE $secrets/office365
 
 # Kerberos: stanford.edu realm (FarmShare) — system krb5.conf has stale KDCs
 set -gx KRB5_CONFIG /afs/cs.stanford.edu/u/ranjanr/.krb5.conf
