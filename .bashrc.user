@@ -21,8 +21,18 @@ fi
 # slurm, which the system PATH lacks). fish inherits all of it.
 export PIXI_HOME="$HOME/.pixi"
 export PATH="$PIXI_HOME/envs/nodejs/bin/:$HOME/.local/bin:$PIXI_HOME/bin:$PATH"
+if [[ -d /marlowe ]]
+then
+	export PATH="/cm/shared/apps/slurm/current/bin:$PATH"
+	export SLURM_CONF=/cm/shared/apps/slurm/var/etc/slurm/slurm.conf
+fi
 
 [[ $- != *i* ]] && return
+
+if [[ -d /marlowe ]]
+then
+	bash "$HOME/setup-node.sh" || echo "WARNING: setup-node.sh failed" >&2
+fi
 
 FISH_SHELL="$PIXI_HOME/bin/fish"
 if [[ -x $FISH_SHELL ]]

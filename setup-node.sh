@@ -35,7 +35,7 @@ DOTFILES_URL=https://github.com/VedangAsgaonkar/dotfiles
 if [[ -d /marlowe ]]; then
     SITE=marlowe
     NODE_HOME=${NODE_HOME:-/users/${USER:-$(id -un)}}
-    SCRATCH=/scratch/m000137-pm06/${USER:-$(id -un)}
+    SCRATCH=/scratch/m000137-pm07/${USER:-$(id -un)}
 elif [[ -d /lfs/local/0 && -d /dfs/user ]]; then
     SITE=ilc
     NODE_HOME=${NODE_HOME:-/lfs/local/0/${USER:-$(id -un)}}
@@ -84,37 +84,7 @@ fi
 export HOME=$NODE_HOME
 export PIXI_HOME=$HOME/.pixi
 
-# ---- 2. node-local pixi ----
-if [[ ! -x $PIXI_HOME/bin/pixi ]]; then
-    say "installing pixi into $PIXI_HOME"
-    curl -fsSL https://pixi.sh/install.sh | PIXI_HOME=$PIXI_HOME bash >/dev/null
-    [[ -x $PIXI_HOME/bin/pixi ]] || die "pixi install did not produce $PIXI_HOME/bin/pixi"
-fi
-export PATH=$PIXI_HOME/bin:$PATH
-# One pixi everywhere: a manifest one version solves and another rejects is a
-# job that fails on one cluster only.
-if [[ $(pixi --version) != "pixi $PIXI_VERSION" ]]; then
-    say "pixi $(pixi --version | cut -d' ' -f2) -> $PIXI_VERSION"
-    pixi self-update --version "$PIXI_VERSION" >/dev/null
-fi
-
-# ---- 3. global CLI tools ----
-# The manifest and pixi config are tracked in the dotfiles repo, so this
-# installs exactly the same tool set on every node. `global sync` is a no-op
-# when the node already matches the manifest, but it does hit the network, so
-# only run it when something is missing or --update was asked for.
-missing=()
-for tool in fish git nvim tmux rg ag python; do
-    [[ -x $PIXI_HOME/bin/$tool ]] || missing+=("$tool")
-done
-if (( UPDATE )) || (( ${#missing[@]} )); then
-    (( ${#missing[@]} )) && say "missing global tools: ${missing[*]}"
-    say "pixi global sync (this downloads; minutes on a fresh node)"
-    pixi global sync
-fi
-
-# ---- 4. node-local dirs everything else assumes ----
-mkdir -p "$HOME/.cache" "/tmp/$USER"
+# ---- 2. node-local dirs everything else assumes ----
 # ~/scratch is the shared filesystem, the same path on every node, so a job
 # submitted with ~/scratch paths reads and writes the same files wherever it
 # lands. A real directory there is a node that wrote to local disk by mistake
@@ -139,6 +109,36 @@ if [[ $SITE == marlowe ]]; then
     mkdir -p "$SCRATCH/.cache" "$SCRATCH/roach_clones"
     link .cache scratch/.cache
     link roach_clones scratch/roach_clones
+fi
+mkdir -p "$HOME/.cache" "/tmp/$USER"
+
+# ---- 3. node-local pixi ----
+if [[ ! -x $PIXI_HOME/bin/pixi ]]; then
+    say "installing pixi into $PIXI_HOME"
+    curl -fsSL https://pixi.sh/install.sh | PIXI_HOME=$PIXI_HOME PIXI_NO_PATH_UPDATE=1 bash >/dev/null
+    [[ -x $PIXI_HOME/bin/pixi ]] || die "pixi install did not produce $PIXI_HOME/bin/pixi"
+fi
+export PATH=$PIXI_HOME/bin:$PATH
+# One pixi everywhere: a manifest one version solves and another rejects is a
+# job that fails on one cluster only.
+if [[ $(pixi --version) != "pixi $PIXI_VERSION" ]]; then
+    say "pixi $(pixi --version | cut -d' ' -f2) -> $PIXI_VERSION"
+    pixi self-update --version "$PIXI_VERSION" >/dev/null
+fi
+
+# ---- 4. global CLI tools ----
+# The manifest and pixi config are tracked in the dotfiles repo, so this
+# installs exactly the same tool set on every node. `global sync` is a no-op
+# when the node already matches the manifest, but it does hit the network, so
+# only run it when something is missing or --update was asked for.
+missing=()
+for tool in fish git nvim tmux rg ag python; do
+    [[ -x $PIXI_HOME/bin/$tool ]] || missing+=("$tool")
+done
+if (( UPDATE )) || (( ${#missing[@]} )); then
+    (( ${#missing[@]} )) && say "missing global tools: ${missing[*]}"
+    say "pixi global sync (this downloads; minutes on a fresh node)"
+    pixi global sync
 fi
 
 # ---- 5. it worked, or nobody should trust this node ----
