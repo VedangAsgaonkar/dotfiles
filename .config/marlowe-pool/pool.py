@@ -14,11 +14,13 @@ KINDS = {
         ),
         per_round=4,
         rounds_per_48h=48,
+        idle_exit_secs=600,
     ),
     "8gpu": dict(
         resources=dataclasses.replace(marlowe.H100_PREEMPT, exclude="n26", time="4:00:00"),
         per_round=2,
         rounds_per_48h=12,
+        idle_exit_secs=900,
     ),
 }
 
@@ -39,7 +41,7 @@ def main(kind: str) -> None:
     n = max(0, min(k["per_round"], cap - w))
     print(f"{subprocess.getoutput('date -Is')} {name}: {w} waiting, cap {cap}, submitting {n}")
     for _ in range(n):
-        hold(k["resources"], cluster=LOCAL, name=name, log_root="~/scratch/marlowe-pool/logs", idle_exit_secs=900)
+        hold(k["resources"], cluster=LOCAL, name=name, log_root="~/scratch/marlowe-pool/logs", idle_exit_secs=k["idle_exit_secs"])
 
 
 main(sys.argv[1])

@@ -9,13 +9,13 @@ import time
 from datetime import datetime
 
 KINDS = "hold-pool-1gpu,hold-pool-8gpu"
-IDLE_EXIT = 900
 REMOTE = f"""
 echo '#T'; date +%s
 echo '#Q'; squeue -h -u $USER -n {KINDS} -o '%i|%j|%T|%M|%L|%l|%N|%r|%S|%V|%b'
 echo '#S'; squeue -h -s -u $USER -o '%i|%j|%M'
 echo '#C'; ls ~/scratch/marlowe-pool/claims 2>/dev/null
 echo '#E'; ids=$(squeue -h -u $USER -n {KINDS} -t R -o %i | paste -sd,); [ -n "$ids" ] && sacct -n -P -j "$ids" -o JobID,End
+echo '#I'; for id in $(squeue -h -u $USER -n {KINDS} -t R -o %i); do echo "$id|$(scontrol write batch_script $id - 2>/dev/null | grep -o -E 'last >= [0-9]+' | grep -o -E '[0-9]+$')"; done
 echo '#L'; tail -2 ~/scratch/marlowe-pool/cron.log 2>/dev/null
 true
 """
@@ -71,6 +71,7 @@ def collect() -> dict:
         if step.isdigit() and epoch(end):
             ends[job] = max(ends.get(job, 0), epoch(end))
     claims = set(sections.get("C", []))
+    limits = {i: int(s) for i, _, s in (line.partition("|") for line in sections.get("I", [])) if s.isdigit()}
     holds = []
     for line in sections.get("Q", []):
         jid, name, state, elapsed, left, limit, node, reason, start, submit, tres = line.split("|")
@@ -79,7 +80,7 @@ def collect() -> dict:
                  limit=limit, elapsed_s=secs(elapsed), left_s=secs(left), submitted=submit,
                  waited_s=now - epoch(submit) if epoch(submit) else None, reason=reason,
                  est_start=start if state == "PENDING" and start != "N/A" else None,
-                 steps=steps.get(jid, []), claimed=jid in claims, idle_s=None)
+                 steps=steps.get(jid, []), claimed=jid in claims, idle_s=None, idle_limit_s=limits.get(jid))
         if state == "RUNNING" and not h["steps"]:
             since = max(epoch(start) or now, ends.get(jid, 0))
             h["idle_s"] = now - since
@@ -100,7 +101,8 @@ def work(h: dict) -> str:
     if h["steps"]:
         return "busy: " + ",".join(sorted(set(h["steps"])))
     tag = "claimed, " if h["claimed"] else ""
-    return f"{tag}idle {hm(h['idle_s'])} (exits ~{hm(max(0, IDLE_EXIT - (h['idle_s'] or 0)))})"
+    left = f" (exits ~{hm(max(0, h['idle_limit_s'] - (h['idle_s'] or 0)))})" if h["idle_limit_s"] else ""
+    return f"{tag}idle {hm(h['idle_s'])}{left}"
 
 
 COLS = [("ID", 8), ("KIND", 5), ("GPU", 3), ("STATE", 8), ("NODE", 5), ("RUN", 7), ("LEFT", 7), ("WAITED", 7), ("EST START", 16), ("WORK / REASON", 40)]
