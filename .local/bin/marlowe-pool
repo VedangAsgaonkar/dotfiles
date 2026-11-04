@@ -2,5 +2,6 @@
 set -euo pipefail
 export PATH=/cm/shared/apps/slurm/current/bin:$HOME/.pixi/bin:/usr/local/bin:/usr/bin:/bin
 export SLURM_CONF=/cm/shared/apps/slurm/var/etc/slurm/slurm.conf
+export BASH_ENV=$HOME/.bashrc
 dir=$HOME/.config/marlowe-pool
 exec pixi run --manifest-path "$dir/pixi.toml" python "$dir/pool.py" "$@"
