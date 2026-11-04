@@ -1,0 +1,17 @@
+#!/bin/bash
+set -uo pipefail
+kind=${1:?usage: marlowe-hold-pick 1gpu|8gpu}
+claims=$HOME/scratch/marlowe-pool/claims
+mkdir -p "$claims"
+live=$(squeue -h -u "$USER" -n "hold-pool-$kind" -o %i)
+for c in "$claims"/*; do
+    [[ -e $c ]] && ! grep -qx "$(basename "$c")" <<< "$live" && rmdir "$c"
+done
+for id in $(squeue -h -u "$USER" -n "hold-pool-$kind" -t RUNNING -S -S -o %i); do
+    squeue -h -s -j "$id" -o %i | grep -q -E '\.[0-9]+$' && continue
+    mkdir "$claims/$id" 2>/dev/null || continue
+    echo "$id"
+    exit 0
+done
+echo "no idle running hold-pool-$kind" >&2
+exit 1
