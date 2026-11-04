@@ -7,4 +7,4 @@ platforms = ["linux-64"]
 python = "3.12.*"
 
 [pypi-dependencies]
-roach = { git = "https://github.com/VedangAsgaonkar/roach", rev = "12fbb6c97bd1ee71f9b2a5dcdfd424b24d386020" }
+roach = { git = "https://github.com/rishabh-ranjan/roach", rev = "532d977f3dbdedff12ec739e94b48f1fd3a9b2c8" }
