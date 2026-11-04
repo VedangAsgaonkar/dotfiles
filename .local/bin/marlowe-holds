@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+import argparse
+import curses
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime
+
+KINDS = "hold-pool-1gpu,hold-pool-8gpu"
+IDLE_EXIT = 900
+REMOTE = f"""
+echo '#T'; date +%s
+echo '#Q'; squeue -h -u $USER -n {KINDS} -o '%i|%j|%T|%M|%L|%l|%N|%r|%S|%V|%b'
+echo '#S'; squeue -h -s -u $USER -o '%i|%j|%M'
+echo '#C'; ls ~/scratch/marlowe-pool/claims 2>/dev/null
+echo '#E'; ids=$(squeue -h -u $USER -n {KINDS} -t R -o %i | paste -sd,); [ -n "$ids" ] && sacct -n -P -j "$ids" -o JobID,End
+echo '#L'; tail -2 ~/scratch/marlowe-pool/cron.log 2>/dev/null
+true
+"""
+
+
+def run_remote() -> str:
+    if os.path.isdir("/marlowe"):
+        cmd = ["bash", "-c", REMOTE]
+    else:
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "marlowe", REMOTE]
+    out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if out.returncode == 255:
+        raise RuntimeError(out.stderr.strip().splitlines()[-1] if out.stderr.strip() else "ssh failed")
+    return out.stdout
+
+
+def secs(t: str) -> int | None:
+    if not t or t in ("INVALID", "UNLIMITED", "NOT_SET", "N/A"):
+        return None
+    d = 0
+    if "-" in t:
+        d, t = t.split("-")
+    parts = [int(x) for x in t.split(":")]
+    while len(parts) < 3:
+        parts.insert(0, 0)
+    return int(d) * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2]
+
+
+def epoch(t: str) -> int | None:
+    if not t or t in ("N/A", "Unknown", "None"):
+        return None
+    return int(datetime.fromisoformat(t).timestamp())
+
+
+def collect() -> dict:
+    sections, cur = {}, None
+    for line in run_remote().splitlines():
+        if line.startswith("#") and len(line) == 2:
+            cur = line[1]
+            sections[cur] = []
+        elif cur and line.strip():
+            sections[cur].append(line)
+    now = int(sections.get("T", [str(int(time.time()))])[0])
+    steps, ends = {}, {}
+    for line in sections.get("S", []):
+        sid, name, _ = line.split("|")
+        job, _, step = sid.partition(".")
+        if step.isdigit():
+            steps.setdefault(job, []).append(name)
+    for line in sections.get("E", []):
+        sid, end = line.split("|")
+        job, _, step = sid.partition(".")
+        if step.isdigit() and epoch(end):
+            ends[job] = max(ends.get(job, 0), epoch(end))
+    claims = set(sections.get("C", []))
+    holds = []
+    for line in sections.get("Q", []):
+        jid, name, state, elapsed, left, limit, node, reason, start, submit, tres = line.split("|")
+        gpus = int(tres.rsplit(":", 1)[-1]) if "gpu" in tres else 0
+        h = dict(id=jid, kind=name.removeprefix("hold-pool-"), gpus=gpus, state=state, node=node or None,
+                 limit=limit, elapsed_s=secs(elapsed), left_s=secs(left), submitted=submit,
+                 waited_s=now - epoch(submit) if epoch(submit) else None, reason=reason,
+                 est_start=start if state == "PENDING" and start != "N/A" else None,
+                 steps=steps.get(jid, []), claimed=jid in claims, idle_s=None)
+        if state == "RUNNING" and not h["steps"]:
+            since = max(epoch(start) or now, ends.get(jid, 0))
+            h["idle_s"] = now - since
+        holds.append(h)
+    holds.sort(key=lambda h: (h["state"] != "RUNNING", h["kind"], -(h["left_s"] or 0), h["submitted"]))
+    return dict(now=now, holds=holds, cron=sections.get("L", []))
+
+
+def hm(s: int | None) -> str:
+    if s is None:
+        return "-"
+    return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m{s % 60:02d}s"
+
+
+def work(h: dict) -> str:
+    if h["state"] != "RUNNING":
+        return "-"
+    if h["steps"]:
+        return "busy: " + ",".join(sorted(set(h["steps"])))
+    tag = "claimed, " if h["claimed"] else ""
+    return f"{tag}idle {hm(h['idle_s'])} (exits ~{hm(max(0, IDLE_EXIT - (h['idle_s'] or 0)))})"
+
+
+COLS = [("ID", 8), ("KIND", 5), ("GPU", 3), ("STATE", 8), ("NODE", 5), ("RUN", 7), ("LEFT", 7), ("WAITED", 7), ("EST START", 16), ("WORK / REASON", 40)]
+
+
+def rows(data: dict) -> list[tuple[str, list[str]]]:
+    out = []
+    for h in data["holds"]:
+        detail = work(h) if h["state"] == "RUNNING" else h["reason"]
+        est = h["est_start"][5:16].replace("T", " ") if h["est_start"] else "-"
+        cells = [h["id"], h["kind"], str(h["gpus"]), h["state"][:8], h["node"] or "-", hm(h["elapsed_s"]) if h["state"] == "RUNNING" else "-",
+                 hm(h["left_s"]) if h["state"] == "RUNNING" else "-", hm(h["waited_s"]) if h["state"] == "PENDING" else "-", est, detail]
+        tone = "busy" if h["steps"] else "idle" if h["state"] == "RUNNING" else "wait"
+        out.append((tone, cells))
+    return out
+
+
+def summary(data: dict) -> list[str]:
+    lines = []
+    for kind in ("1gpu", "8gpu"):
+        hs = [h for h in data["holds"] if h["kind"] == kind]
+        run = [h for h in hs if h["state"] == "RUNNING"]
+        busy = sum(1 for h in run if h["steps"])
+        lines.append(f"{kind}: {len(run)} running ({busy} busy, {len(run) - busy} idle), {len(hs) - len(run)} queued")
+    return lines
+
+
+def fmt(cells: list[str]) -> str:
+    return "  ".join(c.ljust(w) if i < len(COLS) - 1 else c for i, (c, (_, w)) in enumerate(zip(cells, COLS)))
+
+
+def plain(data: dict) -> str:
+    out = [datetime.fromtimestamp(data["now"]).strftime("%Y-%m-%d %H:%M:%S") + " Marlowe hold pool", *summary(data)]
+    out.append(fmt([c for c, _ in COLS]))
+    out += [fmt(cells) for _, cells in rows(data)]
+    if data["cron"]:
+        out.append("last cron: " + data["cron"][-1])
+    return "\n".join(out)
+
+
+def tui(stdscr, every: int) -> None:
+    curses.curs_set(0)
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_GREEN, -1)
+    curses.init_pair(2, curses.COLOR_YELLOW, -1)
+    curses.init_pair(3, curses.COLOR_CYAN, -1)
+    tone = {"busy": curses.color_pair(1), "idle": curses.color_pair(2), "wait": curses.color_pair(3)}
+    stdscr.timeout(1000)
+    data, err, last = None, None, 0.0
+    while True:
+        if time.time() - last >= every:
+            try:
+                data, err = collect(), None
+            except Exception as e:
+                err = str(e)
+            last = time.time()
+        stdscr.erase()
+        h, w = stdscr.getmaxyx()
+        put = lambda y, s, a=0: y < h and stdscr.addnstr(y, 0, s, w - 1, a)
+        y = 0
+        if data:
+            put(y, datetime.fromtimestamp(data["now"]).strftime("%H:%M:%S") + f"  Marlowe hold pool  (refresh {every}s, r: now, q: quit)", curses.A_BOLD); y += 1
+            for line in summary(data):
+                put(y, line); y += 1
+            put(y, fmt([c for c, _ in COLS]), curses.A_UNDERLINE); y += 1
+            for t, cells in rows(data):
+                put(y, fmt(cells), tone[t]); y += 1
+            if data["cron"]:
+                y += 1
+                put(y, "last cron: " + data["cron"][-1]); y += 1
+        if err:
+            put(y + 1, "error: " + err, curses.A_BOLD)
+        stdscr.refresh()
+        k = stdscr.getch()
+        if k in (ord("q"), 27):
+            return
+        if k == ord("r"):
+            last = 0.0
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="Marlowe hold pool: queued and running holds")
+    p.add_argument("--json", action="store_true", help="one snapshot as JSON")
+    p.add_argument("--plain", action="store_true", help="one snapshot as a table")
+    p.add_argument("--every", type=int, default=15, help="seconds between refreshes in the live view")
+    a = p.parse_args()
+    if a.json:
+        print(json.dumps(collect(), indent=1))
+    elif a.plain or not sys.stdout.isatty():
+        print(plain(collect()))
+    else:
+        try:
+            curses.wrapper(tui, a.every)
+        except KeyboardInterrupt:
+            pass
+
+
+main()
