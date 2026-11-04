@@ -1,0 +1,14 @@
+Host marlowe
+    HostName login.marlowe.stanford.edu
+    User vedanga
+    UserKnownHostsFile ~/.config/marlowe-login/known_hosts
+    StrictHostKeyChecking yes
+    ControlPath /tmp/vedanga/ssh-%C
+    ControlPersist yes
+    ServerAliveInterval 60
+    ServerAliveCountMax 5
+    TCPKeepAlive yes
+    GSSAPIAuthentication yes
+    PreferredAuthentications gssapi-with-mic,keyboard-interactive
+    KbdInteractiveAuthentication yes
+    PasswordAuthentication no

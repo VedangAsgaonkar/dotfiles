@@ -1,0 +1,6 @@
+#!/bin/bash
+echo "$(date -Is) askpass prompt: $*" >> "$HOME/.cache/marlowe-relogin.prompts"
+case "$*" in
+    *[Pp]asscode*|*[Oo]ption*|*[Dd]uo*) echo push ;;
+    *) exit 1 ;;
+esac

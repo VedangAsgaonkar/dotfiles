@@ -1,0 +1,23 @@
+#!/bin/bash
+set -uo pipefail
+export HOME=/lfs/local/0/vedanga
+export PATH=$HOME/.pixi/bin:/usr/bin:/bin
+export KRB5_CONFIG=$HOME/.config/krb5/stanford.conf
+export KRB5CCNAME=FILE:$HOME/.cache/krb5cc_stanford
+cfg=$HOME/.config/marlowe-login/ssh_config
+log() { echo "$(date -Is) $*"; }
+
+kinit -R 2>/dev/null || { log "FAILED: no renewable Stanford ticket; run: KRB5_CONFIG=$KRB5_CONFIG KRB5CCNAME=$KRB5CCNAME kinit -r 7d vedanga@stanford.edu"; exit 1; }
+cp=$(ssh -F "$cfg" -G marlowe | awk '$1 == "controlpath" {print $2}')
+new=$cp.new.$$
+rm -f "$new"
+SSH_ASKPASS=$HOME/.local/bin/marlowe-duo-askpass SSH_ASKPASS_REQUIRE=force \
+    timeout 180 ssh -F "$cfg" -o ControlMaster=yes -o ControlPath="$new" -fN marlowe < /dev/null
+if ! ssh -F "$cfg" -o ControlPath="$new" -O check marlowe 2>/dev/null; then
+    rm -f "$new"
+    log "FAILED: login did not complete (Duo push not approved in 3 min, or Kerberos refused)"
+    exit 1
+fi
+ssh -F "$cfg" -O check marlowe 2>/dev/null && ssh -F "$cfg" -O stop marlowe 2>/dev/null
+mv -f "$new" "$cp"
+ssh -F "$cfg" -O check marlowe 2>&1 | sed "s/^/$(date -Is) refreshed: /"
