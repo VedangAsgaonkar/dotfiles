@@ -73,10 +73,14 @@ def tick() -> None:
     reap()
     now = datetime.now()
     for kind, k in KINDS.items():
-        if now.minute < 5 and now.hour in k["hours"]:
-            submit(kind, "round")
-        elif k["refill_when_empty"]:
-            submit(kind, "empty")
+        try:
+            if now.minute < 5 and now.hour in k["hours"]:
+                submit(kind, "round")
+            elif k["refill_when_empty"]:
+                submit(kind, "empty")
+        except RuntimeError as e:
+            why = next((l for l in str(e).splitlines() if "error:" in l), str(e).splitlines()[0])
+            print(f"{datetime.now().isoformat(timespec='seconds')} pool-{kind}: submit FAILED: {why.strip()}")
 
 
 if sys.argv[1] == "tick":
