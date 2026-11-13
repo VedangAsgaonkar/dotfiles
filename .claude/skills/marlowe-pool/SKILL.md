@@ -1,6 +1,6 @@
 ---
 name: marlowe-pool
-description: The standing pool of roach holds on Marlowe (1 GPU and 8 GPU on preempt, a daily 8-GPU hold on batch billed to pm07) — check what is queued or idle and when the next one starts, claim one, submit a job into it, keep an idle one alive with USR1. Use whenever a Marlowe GPU is wanted soon, or the user asks about holds, their availability or ETA.
+description: The standing pool of roach holds on Marlowe (1 GPU and 8 GPU on preempt, a daily 8-GPU hold on batch billed to pm07) — check what is queued or idle and when the next one starts, claim one, submit a job into it, keep an idle one alive with USR2. Use whenever a Marlowe GPU is wanted soon, or the user asks about holds, their availability or ETA.
 ---
 
 # Marlowe hold pool
@@ -18,7 +18,7 @@ A cron on Marlowe login-02 (`*/5 * * * * marlowe-pool tick`, code in `~/.config/
 ```
 marlowe-holds --plain                 # every hold: state, node, time left, idle countdown, est. start of queued ones
 marlowe-holds --plain --kind batch8   # one kind; the summary line has the next estimated start
-marlowe-holds --json --kind batch8    # the same as JSON: state, est_start, left_s, idle_s, idle_limit_s, usr1_extends, steps, claimed
+marlowe-holds --json --kind batch8    # the same as JSON: state, est_start, left_s, idle_s, idle_limit_s, extendable, steps, claimed
 ```
 
 A running hold with no `steps` is free. `est_start` is slurm's guess and moves.
@@ -43,10 +43,10 @@ submit(..., cluster=marlowe.MARLOWE, resources=<shape that fits the hold>, insid
 ## Keep an idle hold a while longer
 
 ```
-marlowe-hold-extend <id>              # SIGUSR1 to the hold: its idle clock restarts (2 h for batch8)
+marlowe-hold-extend <id>              # SIGUSR2 to the hold: its idle clock restarts (2 h for batch8)
 ```
 
-It refuses holds submitted before holds handled USR1, where the signal would end the hold instead.
+It refuses holds submitted before holds handled USR2, where the signal would end the hold instead. USR2, not USR1: roach jobs use USR1 to wrap up and checkpoint, so never send USR1 to a hold or to the jobs in it.
 
 ## Not yours to change
 

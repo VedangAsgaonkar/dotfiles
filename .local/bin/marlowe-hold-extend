@@ -4,6 +4,6 @@ set -uo pipefail
 id=${1:?usage: marlowe-hold-extend <hold job id>}
 info=$(squeue -h -j "$id" -o "%j|%T" 2>/dev/null)
 [[ $info == hold-pool-*"|RUNNING" ]] || { echo "$id is not a running pool hold (${info:-not in queue})" >&2; exit 1; }
-scontrol write batch_script "$id" - 2>/dev/null | grep -q -E "trap .* USR1" ||
-    { echo "$id was submitted before holds handled USR1; USR1 would end it, not extend it" >&2; exit 1; }
-scancel --signal=USR1 --batch "$id" && echo "$id: idle clock restarted"
+scontrol write batch_script "$id" - 2>/dev/null | grep -q -E "trap .* USR2" ||
+    { echo "$id was submitted before holds handled USR2; USR2 would end it, not extend it" >&2; exit 1; }
+scancel --signal=USR2 --batch "$id" && echo "$id: idle clock restarted"

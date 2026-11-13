@@ -16,7 +16,7 @@ echo '#Q'; squeue -h -u $USER -n {KINDS} -o '%i|%j|%T|%M|%L|%l|%N|%r|%S|%V|%b|%P
 echo '#S'; squeue -h -s -u $USER -o '%i|%j|%M'
 echo '#C'; ls ~/scratch/marlowe-pool/claims 2>/dev/null
 echo '#E'; ids=$(squeue -h -u $USER -n {KINDS} -t R -o %i | paste -sd,); [ -n "$ids" ] && sacct -n -P -j "$ids" -o JobID,End
-echo '#I'; for id in $(squeue -h -u $USER -n {KINDS} -t R -o %i); do s=$(scontrol write batch_script $id - 2>/dev/null); echo "$id|$(grep -o -E 'last >= [0-9]+' <<< "$s" | grep -o -E '[0-9]+$')|$(grep -q -E 'trap .* USR1' <<< "$s" && echo y)"; done
+echo '#I'; for id in $(squeue -h -u $USER -n {KINDS} -t R -o %i); do s=$(scontrol write batch_script $id - 2>/dev/null); echo "$id|$(grep -o -E 'last >= [0-9]+' <<< "$s" | grep -o -E '[0-9]+$')|$(grep -q -E 'trap .* USR2' <<< "$s" && echo y)"; done
 echo '#L'; tail -2 ~/scratch/marlowe-pool/cron.log 2>/dev/null
 true
 """
@@ -72,13 +72,13 @@ def collect(kind: str | None = None) -> dict:
         if step.isdigit() and epoch(end):
             ends[job] = max(ends.get(job, 0), epoch(end))
     claims = set(sections.get("C", []))
-    limits, usr1 = {}, set()
+    limits, ext = {}, set()
     for line in sections.get("I", []):
         i, s, u = (line.split("|") + ["", ""])[:3]
         if s.isdigit():
             limits[i] = int(s)
         if u == "y":
-            usr1.add(i)
+            ext.add(i)
     holds = []
     for line in sections.get("Q", []):
         jid, name, state, elapsed, left, limit, node, reason, start, submit, tres, part, acct = line.split("|")
@@ -88,7 +88,7 @@ def collect(kind: str | None = None) -> dict:
                  submitted=submit, waited_s=now - epoch(submit) if epoch(submit) else None, reason=reason,
                  est_start=start if state == "PENDING" and start != "N/A" else None,
                  steps=steps.get(jid, []), claimed=jid in claims, idle_s=None, idle_limit_s=limits.get(jid),
-                 usr1_extends=jid in usr1)
+                 extendable=jid in ext)
         if state == "RUNNING" and not h["steps"]:
             since = max(epoch(start) or now, ends.get(jid, 0))
             h["idle_s"] = now - since
@@ -111,7 +111,7 @@ def work(h: dict) -> str:
         return "busy: " + ",".join(sorted(set(h["steps"])))
     tag = "claimed, " if h["claimed"] else ""
     left = f" (exits ~{hm(max(0, h['idle_limit_s'] - (h['idle_s'] or 0)))})" if h["idle_limit_s"] else ""
-    ext = ", USR1 extends" if h["usr1_extends"] else ""
+    ext = ", USR2 extends" if h["extendable"] else ""
     return f"{tag}idle {hm(h['idle_s'])}{left}{ext}"
 
 
