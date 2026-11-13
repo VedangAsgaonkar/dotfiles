@@ -8,14 +8,15 @@ import sys
 import time
 from datetime import datetime
 
-KINDS = "hold-pool-1gpu,hold-pool-8gpu"
+KIND_NAMES = ("1gpu", "8gpu", "batch8")
+KINDS = ",".join(f"hold-pool-{k}" for k in KIND_NAMES)
 REMOTE = f"""
 echo '#T'; date +%s
-echo '#Q'; squeue -h -u $USER -n {KINDS} -o '%i|%j|%T|%M|%L|%l|%N|%r|%S|%V|%b'
+echo '#Q'; squeue -h -u $USER -n {KINDS} -o '%i|%j|%T|%M|%L|%l|%N|%r|%S|%V|%b|%P|%a'
 echo '#S'; squeue -h -s -u $USER -o '%i|%j|%M'
 echo '#C'; ls ~/scratch/marlowe-pool/claims 2>/dev/null
 echo '#E'; ids=$(squeue -h -u $USER -n {KINDS} -t R -o %i | paste -sd,); [ -n "$ids" ] && sacct -n -P -j "$ids" -o JobID,End
-echo '#I'; for id in $(squeue -h -u $USER -n {KINDS} -t R -o %i); do echo "$id|$(scontrol write batch_script $id - 2>/dev/null | grep -o -E 'last >= [0-9]+' | grep -o -E '[0-9]+$')"; done
+echo '#I'; for id in $(squeue -h -u $USER -n {KINDS} -t R -o %i); do s=$(scontrol write batch_script $id - 2>/dev/null); echo "$id|$(grep -o -E 'last >= [0-9]+' <<< "$s" | grep -o -E '[0-9]+$')|$(grep -q -E 'trap .* USR1' <<< "$s" && echo y)"; done
 echo '#L'; tail -2 ~/scratch/marlowe-pool/cron.log 2>/dev/null
 true
 """
@@ -50,7 +51,7 @@ def epoch(t: str) -> int | None:
     return int(datetime.fromisoformat(t).timestamp())
 
 
-def collect() -> dict:
+def collect(kind: str | None = None) -> dict:
     sections, cur = {}, None
     for line in run_remote().splitlines():
         if line.startswith("#") and len(line) == 2:
@@ -71,20 +72,28 @@ def collect() -> dict:
         if step.isdigit() and epoch(end):
             ends[job] = max(ends.get(job, 0), epoch(end))
     claims = set(sections.get("C", []))
-    limits = {i: int(s) for i, _, s in (line.partition("|") for line in sections.get("I", [])) if s.isdigit()}
+    limits, usr1 = {}, set()
+    for line in sections.get("I", []):
+        i, s, u = (line.split("|") + ["", ""])[:3]
+        if s.isdigit():
+            limits[i] = int(s)
+        if u == "y":
+            usr1.add(i)
     holds = []
     for line in sections.get("Q", []):
-        jid, name, state, elapsed, left, limit, node, reason, start, submit, tres = line.split("|")
+        jid, name, state, elapsed, left, limit, node, reason, start, submit, tres, part, acct = line.split("|")
         gpus = int(tres.rsplit(":", 1)[-1]) if "gpu" in tres else 0
-        h = dict(id=jid, kind=name.removeprefix("hold-pool-"), gpus=gpus, state=state, node=node or None,
-                 limit=limit, elapsed_s=secs(elapsed), left_s=secs(left), submitted=submit,
-                 waited_s=now - epoch(submit) if epoch(submit) else None, reason=reason,
+        h = dict(id=jid, kind=name.removeprefix("hold-pool-"), gpus=gpus, partition=part, account=acct,
+                 state=state, node=node or None, limit=limit, elapsed_s=secs(elapsed), left_s=secs(left),
+                 submitted=submit, waited_s=now - epoch(submit) if epoch(submit) else None, reason=reason,
                  est_start=start if state == "PENDING" and start != "N/A" else None,
-                 steps=steps.get(jid, []), claimed=jid in claims, idle_s=None, idle_limit_s=limits.get(jid))
+                 steps=steps.get(jid, []), claimed=jid in claims, idle_s=None, idle_limit_s=limits.get(jid),
+                 usr1_extends=jid in usr1)
         if state == "RUNNING" and not h["steps"]:
             since = max(epoch(start) or now, ends.get(jid, 0))
             h["idle_s"] = now - since
-        holds.append(h)
+        if kind is None or h["kind"] == kind:
+            holds.append(h)
     holds.sort(key=lambda h: (h["state"] != "RUNNING", h["kind"], -(h["left_s"] or 0), h["submitted"]))
     return dict(now=now, holds=holds, cron=sections.get("L", []))
 
@@ -102,10 +111,11 @@ def work(h: dict) -> str:
         return "busy: " + ",".join(sorted(set(h["steps"])))
     tag = "claimed, " if h["claimed"] else ""
     left = f" (exits ~{hm(max(0, h['idle_limit_s'] - (h['idle_s'] or 0)))})" if h["idle_limit_s"] else ""
-    return f"{tag}idle {hm(h['idle_s'])}{left}"
+    ext = ", USR1 extends" if h["usr1_extends"] else ""
+    return f"{tag}idle {hm(h['idle_s'])}{left}{ext}"
 
 
-COLS = [("ID", 8), ("KIND", 5), ("GPU", 3), ("STATE", 8), ("NODE", 5), ("RUN", 7), ("LEFT", 7), ("WAITED", 7), ("EST START", 16), ("WORK / REASON", 40)]
+COLS = [("ID", 8), ("KIND", 6), ("GPU", 3), ("PART", 7), ("STATE", 8), ("NODE", 5), ("RUN", 7), ("LEFT", 7), ("WAITED", 7), ("EST START", 16), ("WORK / REASON", 40)]
 
 
 def rows(data: dict) -> list[tuple[str, list[str]]]:
@@ -113,20 +123,24 @@ def rows(data: dict) -> list[tuple[str, list[str]]]:
     for h in data["holds"]:
         detail = work(h) if h["state"] == "RUNNING" else h["reason"]
         est = h["est_start"][5:16].replace("T", " ") if h["est_start"] else "-"
-        cells = [h["id"], h["kind"], str(h["gpus"]), h["state"][:8], h["node"] or "-", hm(h["elapsed_s"]) if h["state"] == "RUNNING" else "-",
-                 hm(h["left_s"]) if h["state"] == "RUNNING" else "-", hm(h["waited_s"]) if h["state"] == "PENDING" else "-", est, detail]
-        tone = "busy" if h["steps"] else "idle" if h["state"] == "RUNNING" else "wait"
+        running = h["state"] == "RUNNING"
+        cells = [h["id"], h["kind"], str(h["gpus"]), h["partition"], h["state"][:8], h["node"] or "-",
+                 hm(h["elapsed_s"]) if running else "-", hm(h["left_s"]) if running else "-",
+                 hm(h["waited_s"]) if h["state"] == "PENDING" else "-", est, detail]
+        tone = "busy" if h["steps"] else "idle" if running else "wait"
         out.append((tone, cells))
     return out
 
 
-def summary(data: dict) -> list[str]:
+def summary(data: dict, kind: str | None) -> list[str]:
     lines = []
-    for kind in ("1gpu", "8gpu"):
-        hs = [h for h in data["holds"] if h["kind"] == kind]
+    for k in (kind,) if kind else KIND_NAMES:
+        hs = [h for h in data["holds"] if h["kind"] == k]
         run = [h for h in hs if h["state"] == "RUNNING"]
         busy = sum(1 for h in run if h["steps"])
-        lines.append(f"{kind}: {len(run)} running ({busy} busy, {len(run) - busy} idle), {len(hs) - len(run)} queued")
+        ests = sorted(h["est_start"] for h in hs if h["est_start"])
+        nxt = f", next est. start {ests[0][5:16].replace('T', ' ')}" if ests and not run else ""
+        lines.append(f"{k}: {len(run)} running ({busy} busy, {len(run) - busy} idle), {len(hs) - len(run)} queued{nxt}")
     return lines
 
 
@@ -134,8 +148,8 @@ def fmt(cells: list[str]) -> str:
     return "  ".join(c.ljust(w) if i < len(COLS) - 1 else c for i, (c, (_, w)) in enumerate(zip(cells, COLS)))
 
 
-def plain(data: dict) -> str:
-    out = [datetime.fromtimestamp(data["now"]).strftime("%Y-%m-%d %H:%M:%S") + " Marlowe hold pool", *summary(data)]
+def plain(data: dict, kind: str | None) -> str:
+    out = [datetime.fromtimestamp(data["now"]).strftime("%Y-%m-%d %H:%M:%S") + " Marlowe hold pool", *summary(data, kind)]
     out.append(fmt([c for c, _ in COLS]))
     out += [fmt(cells) for _, cells in rows(data)]
     if data["cron"]:
@@ -143,7 +157,7 @@ def plain(data: dict) -> str:
     return "\n".join(out)
 
 
-def tui(stdscr, every: int) -> None:
+def tui(stdscr, every: int, kind: str | None) -> None:
     curses.curs_set(0)
     curses.use_default_colors()
     curses.init_pair(1, curses.COLOR_GREEN, -1)
@@ -155,7 +169,7 @@ def tui(stdscr, every: int) -> None:
     while True:
         if time.time() - last >= every:
             try:
-                data, err = collect(), None
+                data, err = collect(kind), None
             except Exception as e:
                 err = str(e)
             last = time.time()
@@ -165,7 +179,7 @@ def tui(stdscr, every: int) -> None:
         y = 0
         if data:
             put(y, datetime.fromtimestamp(data["now"]).strftime("%H:%M:%S") + f"  Marlowe hold pool  (refresh {every}s, r: now, q: quit)", curses.A_BOLD); y += 1
-            for line in summary(data):
+            for line in summary(data, kind):
                 put(y, line); y += 1
             put(y, fmt([c for c, _ in COLS]), curses.A_UNDERLINE); y += 1
             for t, cells in rows(data):
@@ -187,15 +201,16 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Marlowe hold pool: queued and running holds")
     p.add_argument("--json", action="store_true", help="one snapshot as JSON")
     p.add_argument("--plain", action="store_true", help="one snapshot as a table")
+    p.add_argument("--kind", choices=KIND_NAMES, help="only this kind of hold")
     p.add_argument("--every", type=int, default=15, help="seconds between refreshes in the live view")
     a = p.parse_args()
     if a.json:
-        print(json.dumps(collect(), indent=1))
+        print(json.dumps(collect(a.kind), indent=1))
     elif a.plain or not sys.stdout.isatty():
-        print(plain(collect()))
+        print(plain(collect(a.kind), a.kind))
     else:
         try:
-            curses.wrapper(tui, a.every)
+            curses.wrapper(tui, a.every, a.kind)
         except KeyboardInterrupt:
             pass
 
