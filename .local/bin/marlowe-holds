@@ -16,7 +16,7 @@ echo '#Q'; squeue -h -u $USER -n {KINDS} -o '%i|%j|%T|%M|%L|%l|%N|%r|%S|%V|%b|%P
 echo '#S'; squeue -h -s -u $USER -o '%i|%j|%M'
 echo '#C'; ls ~/scratch/marlowe-pool/claims 2>/dev/null
 echo '#E'; ids=$(squeue -h -u $USER -n {KINDS} -t R -o %i | paste -sd,); [ -n "$ids" ] && sacct -n -P -j "$ids" -o JobID,End
-echo '#I'; for id in $(squeue -h -u $USER -n {KINDS} -t R -o %i); do s=$(scontrol write batch_script $id - 2>/dev/null); echo "$id|$(grep -o -E 'last >= [0-9]+' <<< "$s" | grep -o -E '[0-9]+$')|$(grep -q -E 'trap .* USR2' <<< "$s" && echo y)"; done
+echo '#I'; for id in $(squeue -h -u $USER -n {KINDS} -t R -o %i); do s=$(scontrol write batch_script $id - 2>/dev/null); echo "$id|$(grep -o -E 'last >= [0-9]+' <<< "$s" | grep -o -E '[0-9]+$')|$(grep -q -E 'trap .* USR2' <<< "$s" && echo y)|$(cat ~/scratch/marlowe-pool/logs/hold_pool-*_$id.out 2>/dev/null | grep -o -E 'USR2 at [0-9:]+' | tail -1 | cut -d' ' -f3)"; done
 echo '#L'; tail -2 ~/scratch/marlowe-pool/cron.log 2>/dev/null
 true
 """
@@ -72,13 +72,16 @@ def collect(kind: str | None = None) -> dict:
         if step.isdigit() and epoch(end):
             ends[job] = max(ends.get(job, 0), epoch(end))
     claims = set(sections.get("C", []))
-    limits, ext = {}, set()
+    limits, ext, usr2 = {}, set(), {}
     for line in sections.get("I", []):
-        i, s, u = (line.split("|") + ["", ""])[:3]
+        i, s, u, r = (line.split("|") + ["", "", ""])[:4]
         if s.isdigit():
             limits[i] = int(s)
         if u == "y":
             ext.add(i)
+        if r:
+            at = datetime.combine(datetime.fromtimestamp(now).date(), datetime.strptime(r, "%H:%M:%S").time())
+            usr2[i] = int(at.timestamp()) - (86400 if at.timestamp() > now else 0)
     holds = []
     for line in sections.get("Q", []):
         jid, name, state, elapsed, left, limit, node, reason, start, submit, tres, part, acct = line.split("|")
@@ -88,9 +91,9 @@ def collect(kind: str | None = None) -> dict:
                  submitted=submit, waited_s=now - epoch(submit) if epoch(submit) else None, reason=reason,
                  est_start=start if state == "PENDING" and start != "N/A" else None,
                  steps=steps.get(jid, []), claimed=jid in claims, idle_s=None, idle_limit_s=limits.get(jid),
-                 extendable=jid in ext)
+                 extendable=jid in ext, last_extended=datetime.fromtimestamp(usr2[jid]).isoformat() if jid in usr2 else None)
         if state == "RUNNING" and not h["steps"]:
-            since = max(epoch(start) or now, ends.get(jid, 0))
+            since = max(epoch(start) or now, ends.get(jid, 0), usr2.get(jid, 0))
             h["idle_s"] = now - since
         if kind is None or h["kind"] == kind:
             holds.append(h)
@@ -115,7 +118,7 @@ def work(h: dict) -> str:
     return f"{tag}idle {hm(h['idle_s'])}{left}{ext}"
 
 
-COLS = [("ID", 8), ("KIND", 6), ("GPU", 3), ("PART", 7), ("STATE", 8), ("NODE", 5), ("RUN", 7), ("LEFT", 7), ("WAITED", 7), ("EST START", 16), ("WORK / REASON", 40)]
+COLS = [("ID", 8), ("KIND", 6), ("GPU", 3), ("PART", 7), ("STATE", 8), ("NODE", 5), ("RUN", 7), ("WALL LEFT", 9), ("WAITED", 7), ("EST START", 16), ("WORK / REASON", 40)]
 
 
 def rows(data: dict) -> list[tuple[str, list[str]]]:

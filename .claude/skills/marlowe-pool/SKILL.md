@@ -18,7 +18,7 @@ A cron on Marlowe login-02 (`*/5 * * * * marlowe-pool tick`, code in `~/.config/
 ```
 marlowe-holds --plain                 # every hold: state, node, time left, idle countdown, est. start of queued ones
 marlowe-holds --plain --kind batch8   # one kind; the summary line has the next estimated start
-marlowe-holds --json --kind batch8    # the same as JSON: state, est_start, left_s, idle_s, idle_limit_s, extendable, steps, claimed
+marlowe-holds --json --kind batch8    # the same as JSON: state, est_start, left_s (to the time limit), idle_s, idle_limit_s, last_extended, extendable, steps, claimed
 ```
 
 A running hold with no `steps` is free. `est_start` is slurm's guess and moves.
