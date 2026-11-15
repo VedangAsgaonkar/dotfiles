@@ -1,0 +1,12 @@
+#!/bin/bash
+set -uo pipefail
+[[ -d /marlowe ]] || exec ssh -o BatchMode=yes marlowe "$(basename "$0")" "$@"
+id=${1:?usage: marlowe-hold-release <hold job id>}
+info=$(squeue -h -j "$id" -o "%j|%T" 2>/dev/null)
+[[ $info == hold-pool-*"|"* ]] || { echo "$id is not a pool hold (${info:-not in queue})" >&2; exit 1; }
+state=${info#*|}
+if [[ $state == RUNNING ]]; then
+    scancel --signal=TERM --batch "$id" && echo "$id: TERM sent to the hold; it releases once no job is running in it"
+else
+    scancel "$id" && echo "$id: cancelled (was $state)"
+fi

@@ -48,6 +48,14 @@ marlowe-hold-extend <id>              # SIGUSR2 to the hold: its idle clock rest
 
 It refuses holds submitted before holds handled USR2, where the signal would end the hold instead. USR2, not USR1: roach jobs use USR1 to wrap up and checkpoint, so never send USR1 to a hold or to the jobs in it.
 
+## Let a hold go
+
+```
+marlowe-hold-release <id>             # running: TERM to the hold only; it releases once no job is running in it. queued: scancel
+```
+
+In the live view (`marlowe-holds` in a terminal): up/down selects a hold, `e` extends it (USR2), `t` terminates it after a y/N prompt (the same as marlowe-hold-release). Release only holds you claimed or the human asked to let go.
+
 ## Not yours to change
 
 The pool's schedule, caps and kinds are the human's. Logs: `marlowe:~/scratch/marlowe-pool/{cron.log,logs/hold_pool-<kind>_<id>.out}`.

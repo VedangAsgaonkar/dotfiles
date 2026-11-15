@@ -157,6 +157,12 @@ def plain(data: dict, kind: str | None) -> str:
     return "\n".join(out)
 
 
+def helper(name: str, jid: str) -> str:
+    path = os.path.join(os.path.dirname(os.path.realpath(__file__)), name)
+    out = subprocess.run([path, jid], capture_output=True, text=True, timeout=60)
+    return (out.stdout.strip() or out.stderr.strip() or f"{name} exited {out.returncode}").splitlines()[-1]
+
+
 def tui(stdscr, every: int, kind: str | None) -> None:
     curses.curs_set(0)
     curses.use_default_colors()
@@ -165,7 +171,7 @@ def tui(stdscr, every: int, kind: str | None) -> None:
     curses.init_pair(3, curses.COLOR_CYAN, -1)
     tone = {"busy": curses.color_pair(1), "idle": curses.color_pair(2), "wait": curses.color_pair(3)}
     stdscr.timeout(1000)
-    data, err, last = None, None, 0.0
+    data, err, last, sel, msg, confirm = None, None, 0.0, 0, "", None
     while True:
         if time.time() - last >= every:
             try:
@@ -173,28 +179,62 @@ def tui(stdscr, every: int, kind: str | None) -> None:
             except Exception as e:
                 err = str(e)
             last = time.time()
+        holds = data["holds"] if data else []
+        sel = max(0, min(sel, len(holds) - 1))
         stdscr.erase()
         h, w = stdscr.getmaxyx()
         put = lambda y, s, a=0: y < h and stdscr.addnstr(y, 0, s, w - 1, a)
         y = 0
         if data:
-            put(y, datetime.fromtimestamp(data["now"]).strftime("%H:%M:%S") + f"  Marlowe hold pool  (refresh {every}s, r: now, q: quit)", curses.A_BOLD); y += 1
+            put(y, datetime.fromtimestamp(data["now"]).strftime("%H:%M:%S") + f"  Marlowe hold pool  (refresh {every}s)  up/down: select  e: extend (USR2)  t: terminate  r: refresh  q: quit", curses.A_BOLD); y += 1
             for line in summary(data, kind):
                 put(y, line); y += 1
             put(y, fmt([c for c, _ in COLS]), curses.A_UNDERLINE); y += 1
-            for t, cells in rows(data):
-                put(y, fmt(cells), tone[t]); y += 1
+            for i, (t, cells) in enumerate(rows(data)):
+                put(y, fmt(cells), tone[t] | (curses.A_REVERSE if i == sel else 0)); y += 1
             if data["cron"]:
                 y += 1
                 put(y, "last cron: " + data["cron"][-1]); y += 1
         if err:
-            put(y + 1, "error: " + err, curses.A_BOLD)
+            y += 1
+            put(y, "error: " + err, curses.A_BOLD); y += 1
+        if confirm:
+            put(h - 1, confirm[1], curses.A_BOLD)
+        elif msg:
+            put(h - 1, msg)
         stdscr.refresh()
         k = stdscr.getch()
+        if confirm:
+            if k == ord("y"):
+                msg = helper("marlowe-hold-release", confirm[0])
+                last = 0.0
+            elif k != -1:
+                msg = "terminate: cancelled"
+            if k != -1:
+                confirm = None
+            continue
         if k in (ord("q"), 27):
             return
         if k == ord("r"):
             last = 0.0
+        elif k in (curses.KEY_DOWN, ord("j")):
+            sel += 1
+        elif k in (curses.KEY_UP, ord("k")):
+            sel -= 1
+        elif k == ord("e") and holds:
+            hd = holds[sel]
+            if hd["state"] != "RUNNING":
+                msg = f"{hd['id']}: not running, nothing to extend"
+            elif not hd["extendable"]:
+                msg = f"{hd['id']}: submitted before holds handled USR2; not extending (USR2 would end it)"
+            else:
+                msg = helper("marlowe-hold-extend", hd["id"])
+                last = 0.0
+        elif k == ord("t") and holds:
+            hd = holds[sel]
+            what = ("TERM to the hold: it releases once no job is running in it" if hd["state"] == "RUNNING"
+                    else f"cancel the {hd['state'].lower()} hold")
+            confirm = (hd["id"], f"terminate {hd['id']} ({hd['kind']}): {what}? [y/N]")
 
 
 def main() -> None:
