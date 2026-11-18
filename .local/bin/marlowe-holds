@@ -166,7 +166,31 @@ def helper(name: str, jid: str) -> str:
     return (out.stdout.strip() or out.stderr.strip() or f"{name} exited {out.returncode}").splitlines()[-1]
 
 
-def tui(stdscr, every: int, kind: str | None) -> None:
+SHORT = {"1gpu": "1g", "8gpu": "8g", "batch8": "b8"}
+
+
+def tiny_header(data: dict, kind: str | None) -> str:
+    parts = []
+    for k in (kind,) if kind else KIND_NAMES:
+        hs = [h for h in data["holds"] if h["kind"] == k]
+        run = [h for h in hs if h["state"] == "RUNNING"]
+        busy = sum(1 for h in run if h["steps"])
+        ests = sorted(h["est_start"] for h in hs if h["est_start"])
+        eta = f"~{ests[0][11:16]}" if ests and not run else ""
+        parts.append(f"{SHORT[k]} {busy}/{len(run) - busy} {len(hs) - len(run)}q{eta}")
+    return datetime.fromtimestamp(data["now"]).strftime("%H:%M") + " " + " ".join(parts)
+
+
+def tiny_row(h: dict) -> str:
+    if h["steps"]:
+        what = "busy " + ",".join(sorted(set(h["steps"])))
+    else:
+        rel = f">{hm(max(0, h['idle_limit_s'] - (h['idle_s'] or 0)))}" if h["idle_limit_s"] else ""
+        what = f"idle {hm(h['idle_s'])} {rel}{' E' if h['extendable'] else ''}{' C' if h['claimed'] else ''}"
+    return f"{h['id']} {SHORT[h['kind']]} {h['node'] or '-':4} {what}"
+
+
+def tui(stdscr, every: int, kind: str | None, tiny: bool = False) -> None:
     curses.curs_set(0)
     curses.use_default_colors()
     curses.init_pair(1, curses.COLOR_GREEN, -1)
@@ -183,12 +207,21 @@ def tui(stdscr, every: int, kind: str | None) -> None:
                 err = str(e)
             last = time.time()
         holds = data["holds"] if data else []
+        if tiny:
+            holds = [hd for hd in holds if hd["state"] == "RUNNING"]
         sel = max(0, min(sel, len(holds) - 1))
         stdscr.erase()
         h, w = stdscr.getmaxyx()
         put = lambda y, s, a=0: y < h and stdscr.addnstr(y, 0, s, w - 1, a)
         y = 0
-        if data:
+        if data and tiny:
+            put(y, tiny_header(data, kind), curses.A_BOLD); y += 1
+            for i, hd in enumerate(holds):
+                t = "busy" if hd["steps"] else "idle"
+                put(y, tiny_row(hd), tone[t] | (curses.A_REVERSE if i == sel else 0)); y += 1
+            if not holds:
+                put(y, "no hold running"); y += 1
+        elif data:
             put(y, datetime.fromtimestamp(data["now"]).strftime("%H:%M:%S") + f"  Marlowe hold pool  (refresh {every}s)  up/down: select  e: extend (USR2)  t: terminate  r: refresh  q: quit", curses.A_BOLD); y += 1
             for line in summary(data, kind):
                 put(y, line); y += 1
@@ -202,9 +235,11 @@ def tui(stdscr, every: int, kind: str | None) -> None:
             y += 1
             put(y, "error: " + err, curses.A_BOLD); y += 1
         if confirm:
-            put(h - 1, confirm[1], curses.A_BOLD)
+            put(h - 1, f"terminate {confirm[0]}? y/N" if tiny else confirm[1], curses.A_BOLD)
         elif msg:
             put(h - 1, msg)
+        elif tiny:
+            put(h - 1, "jk sel  e ext  t term  r  q", curses.A_DIM)
         stdscr.refresh()
         k = stdscr.getch()
         if confirm:
@@ -246,6 +281,7 @@ def main() -> None:
     p.add_argument("--plain", action="store_true", help="one snapshot as a table")
     p.add_argument("--kind", choices=KIND_NAMES, help="only this kind of hold")
     p.add_argument("--every", type=int, default=15, help="seconds between refreshes in the live view")
+    p.add_argument("--tiny", action="store_true", help="live view small enough for a floating tmux pane")
     a = p.parse_args()
     if a.json:
         print(json.dumps(collect(a.kind), indent=1))
@@ -253,7 +289,7 @@ def main() -> None:
         print(plain(collect(a.kind), a.kind))
     else:
         try:
-            curses.wrapper(tui, a.every, a.kind)
+            curses.wrapper(tui, a.every, a.kind, a.tiny)
         except KeyboardInterrupt:
             pass
 
