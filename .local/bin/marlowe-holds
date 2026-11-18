@@ -198,7 +198,7 @@ def tui(stdscr, every: int, kind: str | None, tiny: bool = False) -> None:
     curses.init_pair(3, curses.COLOR_CYAN, -1)
     tone = {"busy": curses.color_pair(1), "idle": curses.color_pair(2), "wait": curses.color_pair(3)}
     stdscr.timeout(1000)
-    data, err, last, sel, msg, confirm = None, None, 0.0, 0, "", None
+    data, err, last, sel, msg, confirm, top, page = None, None, 0.0, 0, "", None, 0, 1
     while True:
         if time.time() - last >= every:
             try:
@@ -216,7 +216,9 @@ def tui(stdscr, every: int, kind: str | None, tiny: bool = False) -> None:
         y = 0
         if data and tiny:
             put(y, tiny_header(data, kind), curses.A_BOLD); y += 1
-            for i, hd in enumerate(holds):
+            page = max(1, h - y - 1)
+            top = min(max(top, sel - page + 1), sel) if holds else 0
+            for i, hd in enumerate(holds[top:top + page], start=top):
                 t = "busy" if hd["steps"] else "idle"
                 put(y, tiny_row(hd), tone[t] | (curses.A_REVERSE if i == sel else 0)); y += 1
             if not holds:
@@ -226,7 +228,9 @@ def tui(stdscr, every: int, kind: str | None, tiny: bool = False) -> None:
             for line in summary(data, kind):
                 put(y, line); y += 1
             put(y, fmt([c for c, _ in COLS]), curses.A_UNDERLINE); y += 1
-            for i, (t, cells) in enumerate(rows(data)):
+            page = max(1, h - y - (3 if data["cron"] else 1))
+            top = min(max(top, sel - page + 1), sel) if holds else 0
+            for i, (t, cells) in list(enumerate(rows(data)))[top:top + page]:
                 put(y, fmt(cells), tone[t] | (curses.A_REVERSE if i == sel else 0)); y += 1
             if data["cron"]:
                 y += 1
@@ -239,7 +243,9 @@ def tui(stdscr, every: int, kind: str | None, tiny: bool = False) -> None:
         elif msg:
             put(h - 1, msg)
         elif tiny:
-            put(h - 1, "jk sel  e ext  t term  r  q", curses.A_DIM)
+            put(h - 1, f"[{sel + 1}/{len(holds)}] jk e t r q" if holds else "r q", curses.A_DIM)
+        elif holds:
+            put(h - 1, f"[{sel + 1}/{len(holds)}]  PgUp/PgDn: page  Home/End (g/G): first/last", curses.A_DIM)
         stdscr.refresh()
         k = stdscr.getch()
         if confirm:
@@ -259,6 +265,14 @@ def tui(stdscr, every: int, kind: str | None, tiny: bool = False) -> None:
             sel += 1
         elif k in (curses.KEY_UP, ord("k")):
             sel -= 1
+        elif k == curses.KEY_NPAGE:
+            sel += page
+        elif k == curses.KEY_PPAGE:
+            sel -= page
+        elif k in (curses.KEY_HOME, ord("g")):
+            sel = 0
+        elif k in (curses.KEY_END, ord("G")):
+            sel = len(holds) - 1
         elif k == ord("e") and holds:
             hd = holds[sel]
             if hd["state"] != "RUNNING":
