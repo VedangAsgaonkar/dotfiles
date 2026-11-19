@@ -11,7 +11,7 @@ A cron on Marlowe login-02 (`*/5 * * * * marlowe-pool tick`, code in `~/.config/
 | --- | --- | --- | --- | --- | --- |
 | `1gpu` | preempt / marlowe-m000137 | 1 GPU, 14 cpu, 1 h | 4 every hour, more when none are waiting | 10 min | free; preempted any time |
 | `8gpu` | preempt / marlowe-m000137 | whole node, 4 h | 2 every 4 h, more when none are waiting | 15 min | free; rarely starts |
-| `batch8` | batch / marlowe-m000137-pm07 | whole node, 2 days | 1 daily at 09:00, at most 2 waiting | 2 h | **billed: 8 GPU-hours per hour held, idle or not** |
+| `batch8` | batch / marlowe-m000137-pm07 | whole node, 2 days | 1 at 09:00 and 21:00, at most 4 waiting | 2 h | **billed: 8 GPU-hours per hour held, idle or not** |
 
 ## See what is there
 
