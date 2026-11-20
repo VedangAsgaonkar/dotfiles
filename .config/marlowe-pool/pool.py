@@ -30,9 +30,9 @@ KINDS = {
     "batch8": dict(
         resources=dataclasses.replace(marlowe.H100, exclude="n26"),
         per_round=1,
-        hours={9, 21},
+        hours={9},
         refill_when_empty=False,
-        cap=4,
+        cap=2,
         idle_exit_secs=7200,
     ),
 }
