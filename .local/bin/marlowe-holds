@@ -8,7 +8,7 @@ import sys
 import time
 from datetime import datetime
 
-KIND_NAMES = ("1gpu", "8gpu", "batch8")
+KIND_NAMES = ("1gpu", "batch8")
 KINDS = ",".join(f"hold-pool-{k}" for k in KIND_NAMES)
 REMOTE = f"""
 echo '#T'; date +%s
@@ -166,7 +166,7 @@ def helper(name: str, jid: str) -> str:
     return (out.stdout.strip() or out.stderr.strip() or f"{name} exited {out.returncode}").splitlines()[-1]
 
 
-SHORT = {"1gpu": "1g", "8gpu": "8g", "batch8": "b8"}
+SHORT = {"1gpu": "1g", "batch8": "b8"}
 
 
 def tiny_header(data: dict, kind: str | None) -> str:

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -uo pipefail
 [[ -d /marlowe ]] || exec ssh -o BatchMode=yes marlowe "$(basename "$0")" "$@"
-kind=${1:?usage: marlowe-hold-pick 1gpu|8gpu|batch8}
+kind=${1:?usage: marlowe-hold-pick 1gpu|batch8}
 claims=$HOME/scratch/marlowe-pool/claims
 mkdir -p "$claims"
 live=$(squeue -h -u "$USER" -n "hold-pool-$kind" -o %i)

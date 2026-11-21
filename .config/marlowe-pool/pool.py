@@ -19,14 +19,6 @@ KINDS = {
         cap=192,
         idle_exit_secs=600,
     ),
-    "8gpu": dict(
-        resources=dataclasses.replace(marlowe.H100_PREEMPT, exclude="n26", time="4:00:00"),
-        per_round=2,
-        hours={0, 4, 8, 12, 16, 20},
-        refill_when_empty=True,
-        cap=24,
-        idle_exit_secs=900,
-    ),
     "batch8": dict(
         resources=dataclasses.replace(marlowe.H100, exclude="n26"),
         per_round=1,

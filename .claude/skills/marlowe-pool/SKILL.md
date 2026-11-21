@@ -1,6 +1,6 @@
 ---
 name: marlowe-pool
-description: The standing pool of roach holds on Marlowe (1 GPU and 8 GPU on preempt, a daily 8-GPU hold on batch billed to pm07) — check what is queued or idle and when the next one starts, claim one, submit a job into it, keep an idle one alive with USR2. Use whenever a Marlowe GPU is wanted soon, or the user asks about holds, their availability or ETA.
+description: The standing pool of roach holds on Marlowe (1 GPU on preempt, a daily 8-GPU hold on batch billed to pm07) — check what is queued or idle and when the next one starts, claim one, submit a job into it, keep an idle one alive with USR2. Use whenever a Marlowe GPU is wanted soon, or the user asks about holds, their availability or ETA.
 ---
 
 # Marlowe hold pool
@@ -10,7 +10,6 @@ A cron on Marlowe login-02 (`*/5 * * * * marlowe-pool tick`, code in `~/.config/
 | kind | partition / account | shape | submitted | released after idle | cost |
 | --- | --- | --- | --- | --- | --- |
 | `1gpu` | preempt / marlowe-m000137 | 1 GPU, 14 cpu, 1 h | 4 every hour, more when none are waiting | 10 min | free; preempted any time |
-| `8gpu` | preempt / marlowe-m000137 | whole node, 4 h | 2 every 4 h, more when none are waiting | 15 min | free; rarely starts |
 | `batch8` | batch / marlowe-m000137-pm07 | whole node, 2 days | 1 daily at 09:00, at most 2 waiting | 2 h | **billed: 8 GPU-hours per hour held, idle or not** |
 
 ## See what is there
@@ -35,7 +34,7 @@ then from the project's roach environment:
 submit(..., cluster=marlowe.MARLOWE, resources=<shape that fits the hold>, inside=id)
 ```
 
-`1gpu` -> `dataclasses.replace(marlowe.H100_PREEMPT, gpus="1", exclusive=False)`; `8gpu` -> `marlowe.H100_PREEMPT`; `batch8` -> `marlowe.H100`. Submit within the idle window of the claim.
+`1gpu` -> `dataclasses.replace(marlowe.H100_PREEMPT, gpus="1", exclusive=False)`; `batch8` -> `marlowe.H100`. Submit within the idle window of the claim.
 
 - Work inside a hold dies with it (preemption, its time limit) and nothing requeues it: only resumable work, resubmitted by `run_id`.
 - Holding or extending `batch8` spends pm07's shared GPU-hours: use it, and extend it, only for work the human asked to run on Marlowe.
