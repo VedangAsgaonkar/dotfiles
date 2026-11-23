@@ -11,7 +11,7 @@ LOCAL = dataclasses.replace(marlowe.MARLOWE, submit_host=None)
 KINDS = {
     "1gpu": dict(
         resources=dataclasses.replace(
-            marlowe.H100_PREEMPT, gpus="1", exclusive=False, exclude="n26", time="1:00:00"
+            marlowe.H100_PREEMPT, gpus="1", exclusive=False, exclude="n[01,15,26]", time="1:00:00"
         ),
         per_round=4,
         hours=set(range(24)),
@@ -20,7 +20,7 @@ KINDS = {
         idle_exit_secs=600,
     ),
     "batch8": dict(
-        resources=dataclasses.replace(marlowe.H100, exclude="n26"),
+        resources=dataclasses.replace(marlowe.H100, exclude="n[01,15,26]"),
         per_round=1,
         hours={9},
         refill_when_empty=False,
@@ -32,10 +32,10 @@ KINDS = {
 
 def waiting(name: str) -> int:
     out = subprocess.run(
-        ["squeue", "-h", "-u", subprocess.getoutput("id -un"), "-n", f"hold-{name}", "-t", "PENDING", "-o", "%i"],
+        ["squeue", "-h", "-u", subprocess.getoutput("id -un"), "-n", f"hold-{name}", "-t", "PENDING", "-o", "%i|%r"],
         capture_output=True, text=True, check=True,
     ).stdout
-    return len(out.split())
+    return sum(1 for line in out.splitlines() if line and "held" not in line.lower())
 
 
 def submit(kind: str, why: str) -> None:
@@ -52,10 +52,12 @@ def submit(kind: str, why: str) -> None:
 
 def reap() -> None:
     names = ",".join(f"hold-pool-{kind}" for kind in KINDS)
-    ids = subprocess.run(
-        ["squeue", "-h", "-u", subprocess.getoutput("id -un"), "-n", names, "-t", "REQUEUE_HOLD", "-o", "%i"],
+    out = subprocess.run(
+        ["squeue", "-h", "-u", subprocess.getoutput("id -un"), "-n", names, "-t", "PENDING,REQUEUE_HOLD", "-o", "%i|%T|%r"],
         capture_output=True, text=True, check=True,
-    ).stdout.split()
+    ).stdout
+    ids = [i for i, state, reason in (line.split("|", 2) for line in out.splitlines() if line)
+           if state == "REQUEUE_HOLD" or "held" in reason.lower()]
     if ids:
         subprocess.run(["scancel", *ids], check=True)
         print(f"{datetime.now().isoformat(timespec='seconds')} reaped {len(ids)} held: {' '.join(ids)}")
